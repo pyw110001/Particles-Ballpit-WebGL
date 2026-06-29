@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 // 3D 物理引擎求解器
 class Physics3D {
@@ -18,10 +21,10 @@ class Physics3D {
     const { config, positionData, velocityData, sizeData } = this;
     for (let i = 0; i < config.count; i++) {
       const base = 3 * i;
-      // 在高处随机分布生成
-      positionData[base] = THREE.MathUtils.randFloatSpread(config.maxX * 1.5);
+      // 在高处随机分布生成，让它们下落碰撞
+      positionData[base] = THREE.MathUtils.randFloatSpread(config.maxX * 1.2);
       positionData[base + 1] = THREE.MathUtils.randFloat(config.minY, config.maxY);
-      positionData[base + 2] = THREE.MathUtils.randFloatSpread(config.maxZ * 1.5);
+      positionData[base + 2] = THREE.MathUtils.randFloatSpread(config.maxZ * 1.2);
 
       // 初速度归零
       velocityData[base] = 0;
@@ -75,7 +78,7 @@ class Physics3D {
     }
 
     // 2. 球与球物理碰撞解算（进行多次迭代以保证物理叠放稳定性）
-    const iterations = 3;
+    const iterations = 4;
     for (let iter = 0; iter < iterations; iter++) {
       for (let idx = 0; idx < config.count; idx++) {
         const base = 3 * idx;
@@ -160,7 +163,7 @@ class Physics3D {
 
     // 3. 鼠标交互排斥力
     if (config.controlSphere0) {
-      const mouseRadius = config.mouseRadius || 2.5;
+      const mouseRadius = config.mouseRadius || 2.2;
       for (let idx = 0; idx < config.count; idx++) {
         const base = 3 * idx;
         const r = sizeData[idx];
@@ -185,7 +188,7 @@ class Physics3D {
           positionData[base + 1] += ny * overlap * 0.7;
           positionData[base + 2] += nz * overlap * 0.7;
 
-          // 施加一定的推力速度
+          // 施加推力速度
           velocityData[base] += nx * overlap * 0.2 * 60;
           velocityData[base + 1] += ny * overlap * 0.2 * 60;
           velocityData[base + 2] += nz * overlap * 0.2 * 60;
@@ -193,7 +196,7 @@ class Physics3D {
       }
     }
 
-    // 4. 边界（箱体）碰撞约束
+    // 4. 边界（箱体）碰撞约束，限制其集中在中心形成堆叠堆
     for (let idx = 0; idx < config.count; idx++) {
       const base = 3 * idx;
       const r = sizeData[idx];
@@ -216,18 +219,18 @@ class Physics3D {
       }
 
       // 天花板 (Y 轴上界)
-      if (py + r > config.maxY * 1.8) {
-        py = config.maxY * 1.8 - r;
+      if (py + r > config.maxY * 1.6) {
+        py = config.maxY * 1.6 - r;
         vy = -vy * config.wallBounce;
       }
 
-      // 左右侧壁 (X 轴边界)
+      // 左右侧壁 (X 轴边界，范围略微收窄以让球堆积在屏幕中间)
       if (Math.abs(px) + r > config.maxX) {
         px = Math.sign(px) * (config.maxX - r);
         vx = -vx * config.wallBounce;
       }
 
-      // 前后壁面 (Z 轴边界)
+      // 前后壁面 (Z 轴边界，让球前后挤压出纵深感)
       if (Math.abs(pz) + r > config.maxZ) {
         pz = Math.sign(pz) * (config.maxZ - r);
         vz = -vz * config.wallBounce;
@@ -244,24 +247,25 @@ class Physics3D {
   }
 }
 
-// 默认配置项
+// 默认配置项 (针对参考图视觉微调)
 const DEFAULT_CONFIG = {
-  count: 100,
-  colors: ['#ff0055', '#aa00ff', '#00ffcc'],
-  minSize: 0.35,
-  maxSize: 0.9,
-  gravity: 0.8,
-  friction: 0.992,
-  wallBounce: 0.75,
+  count: 80,
+  colors: ['#7f00ff', '#ffffff', '#1e293b'],
+  minSize: 0.5,
+  maxSize: 1.0,
+  gravity: 0.9,
+  friction: 0.99,
+  wallBounce: 0.7,
   maxVelocity: 0.25,
-  maxX: 6.5,
+  maxX: 4.2,      // 收窄边界，使球体紧密堆积在屏幕中央
   maxY: 6.0,
-  maxZ: 4.0,
-  minY: 6.0,
-  floorY: 4.8, // 地板所处高度
+  maxZ: 3.2,
+  minY: 4.0,      // 生成高度起点
+  floorY: 3.8,    // 地板高度，配合视角使得球体处于正中心
   controlSphere0: false,
   mouseRadius: 2.2,
-  followCursor: true
+  followCursor: true,
+  lightIntensity: 300
 };
 
 function createRapierSpheres(canvas, options = {}) {
@@ -269,11 +273,12 @@ function createRapierSpheres(canvas, options = {}) {
   
   // 创建 ThreeJS 核心渲染环境
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0f172a, 0.015);
+  scene.background = new THREE.Color(0x090c15); // 参考图对应的深蓝色夜空底色
+  scene.fog = new THREE.FogExp2(0x090c15, 0.02);
 
   const camera = new THREE.PerspectiveCamera(45, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
-  camera.position.set(0, 4, 15);
-  camera.lookAt(0, 0, 0);
+  camera.position.set(0, 1.8, 14.5); // 调整相机高度与距离，对准堆叠在中心的球体
+  camera.lookAt(0, -0.2, 0);
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -286,35 +291,34 @@ function createRapierSpheres(canvas, options = {}) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.1;
 
-  // 1. 高品质环境映射 (EnvMap)
+  // 1. 高品质环境反射图 (EnvMap)
   const pmremGenerator = new THREE.PMREMGenerator(renderer);
   pmremGenerator.compileEquirectangularShader();
   const roomEnv = new RoomEnvironment();
   const envMap = pmremGenerator.fromScene(roomEnv, 0.04).texture;
   scene.environment = envMap;
 
-  // 2. 实时镜面反射地板 (Real-time Reflector)
+  // 2. 实时平面反射地板 (镜面反射)
   const floorGeo = new THREE.PlaneGeometry(30, 30);
   const reflector = new Reflector(floorGeo, {
     clipBias: 0.003,
     textureWidth: 1024,
     textureHeight: 1024,
-    color: 0x222222
+    color: 0x181818 // 暗色反射地板，呈现微弱高雅的镜面图景
   });
   reflector.rotateX(-Math.PI / 2);
-  reflector.position.y = -config.floorY - 0.01; // 微调防止深度冲突 (Z-fighting)
+  reflector.position.y = -config.floorY - 0.01;
   scene.add(reflector);
 
-  // 3. 承载软阴影的半透明地板层 (Shadow Receiver)
+  // 3. 承接软阴影的地板 (与背景色融合)
   const floorShadowMat = new THREE.MeshPhysicalMaterial({
-    color: 0x0f172a,
-    roughness: 0.25,
+    color: 0x090c15,
+    roughness: 0.4,
     metalness: 0.1,
     transparent: true,
-    opacity: 0.55,
-    roughnessMap: null
+    opacity: 0.65
   });
   const shadowFloor = new THREE.Mesh(floorGeo, floorShadowMat);
   shadowFloor.rotateX(-Math.PI / 2);
@@ -322,135 +326,168 @@ function createRapierSpheres(canvas, options = {}) {
   shadowFloor.receiveShadow = true;
   scene.add(shadowFloor);
 
-  // 4. 舞台装饰暗色壁面
-  const wallGeo = new THREE.PlaneGeometry(30, 20);
-  const wallMat = new THREE.MeshPhysicalMaterial({
-    color: 0x111827,
-    roughness: 0.5,
-    metalness: 0.1,
-    clearcoat: 0.2
+  // 4. 逆光下的精细材质配置（分发 3 类材质，逼真再现玉石/烤漆质感）
+  const sphereGeo = new THREE.SphereGeometry(1, 40, 40); // 极高细分数，保证球体圆润
+
+  // 材质A: 磨砂玉石半透明玻璃（对应磨砂白灰球，具有次表面散射的体积感）
+  const matFrostedGlass = new THREE.MeshPhysicalMaterial({
+    roughness: 0.22,
+    metalness: 0.05,
+    transmission: 0.75, // 开启透光
+    thickness: 1.8,     // 体积厚度，使边缘光发生偏折
+    ior: 1.48,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 1.8
   });
-  
-  // 后壁
-  const backWall = new THREE.Mesh(wallGeo, wallMat);
-  backWall.position.set(0, 4, -config.maxZ - 0.5);
-  backWall.receiveShadow = true;
-  scene.add(backWall);
 
-  // 左壁
-  const leftWall = new THREE.Mesh(wallGeo, wallMat);
-  leftWall.position.set(-config.maxX - 0.5, 4, 0);
-  leftWall.rotateY(Math.PI / 2);
-  leftWall.receiveShadow = true;
-  scene.add(leftWall);
+  // 材质B: 亮泽瓷感烤漆（对应绿/青球，漆面圆润饱满）
+  const matGlossyPaint = new THREE.MeshPhysicalMaterial({
+    roughness: 0.16,
+    metalness: 0.12,
+    clearcoat: 1.0,     // 强清漆外层
+    clearcoatRoughness: 0.04,
+    envMapIntensity: 1.4
+  });
 
-  // 右壁
-  const rightWall = new THREE.Mesh(wallGeo, wallMat);
-  rightWall.position.set(config.maxX + 0.5, 4, 0);
-  rightWall.rotateY(-Math.PI / 2);
-  rightWall.receiveShadow = true;
-  scene.add(rightWall);
-
-  // 5. 实例化球体 (InstancedMesh)
-  const sphereGeo = new THREE.SphereGeometry(1, 32, 32);
-  const sphereMat = new THREE.MeshPhysicalMaterial({
+  // 材质C: 深色金属漆漆面（对应深蓝/黑球，深邃冷峻）
+  const matMetallicLacquer = new THREE.MeshPhysicalMaterial({
     roughness: 0.08,
-    metalness: 0.7,
+    metalness: 0.88,
     clearcoat: 1.0,
-    clearcoatRoughness: 0.05
+    clearcoatRoughness: 0.02,
+    envMapIntensity: 1.8
   });
-  
-  let instMesh;
+
   const physics = new Physics3D(config);
-
   const paletteColors = config.colors.map(c => new THREE.Color(c));
-
-  function initInstancedMesh() {
-    if (instMesh) {
-      scene.remove(instMesh);
-      instMesh.geometry.dispose();
-      instMesh.material.dispose();
-    }
-    
-    instMesh = new THREE.InstancedMesh(sphereGeo, sphereMat, config.count);
-    instMesh.castShadow = true;
-    instMesh.receiveShadow = true;
-    scene.add(instMesh);
-
-    // 分配球体实例颜色
-    for (let i = 0; i < config.count; i++) {
-      const col = paletteColors[i % paletteColors.length];
-      instMesh.setColorAt(i, col);
-    }
-    instMesh.instanceColor.needsUpdate = true;
-  }
   
-  initInstancedMesh();
+  const meshes = [];
 
-  // 6. 光源设置 (Lights)
-  const ambientLight = new THREE.AmbientLight(0x0f172a, 0.45);
+  function initSpheres() {
+    // 释放旧有资源
+    meshes.forEach(m => {
+      scene.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
+    });
+    meshes.length = 0;
+
+    physics.reset();
+
+    for (let i = 0; i < config.count; i++) {
+      // 随机分配三种高级质感材质
+      // 约 35% 玉石透光， 45% 烤漆， 20% 金属漆
+      const rand = Math.random();
+      let baseMat;
+      if (rand < 0.35) {
+        baseMat = matFrostedGlass;
+      } else if (rand < 0.8) {
+        baseMat = matGlossyPaint;
+      } else {
+        baseMat = matMetallicLacquer;
+      }
+
+      const mat = baseMat.clone();
+      const col = paletteColors[i % paletteColors.length];
+      mat.color.copy(col);
+
+      const mesh = new THREE.Mesh(sphereGeo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      meshes.push(mesh);
+    }
+  }
+
+  initSpheres();
+
+  // 5. 三点式高级布光系统 (Studio Lighting)
+  const ambientLight = new THREE.AmbientLight(0x0b1120, 0.6); // 低强度深蓝填充
   scene.add(ambientLight);
 
-  // 主定向光源（投射阴影）
-  const dirLight = new THREE.DirectionalLight(0xffffff, 4.5);
-  dirLight.position.set(8, 14, 8);
+  // 主聚光（正面右侧）投射阴影
+  const dirLight = new THREE.DirectionalLight(0xffffff, 4.0);
+  dirLight.position.set(7, 10, 8);
   dirLight.castShadow = true;
   dirLight.shadow.mapSize.width = 1024;
   dirLight.shadow.mapSize.height = 1024;
   dirLight.shadow.camera.near = 0.5;
-  dirLight.shadow.camera.far = 30;
-  dirLight.shadow.camera.left = -10;
-  dirLight.shadow.camera.right = 10;
-  dirLight.shadow.camera.top = 10;
-  dirLight.shadow.camera.bottom = -10;
+  dirLight.shadow.camera.far = 25;
+  dirLight.shadow.camera.left = -6;
+  dirLight.shadow.camera.right = 6;
+  dirLight.shadow.camera.top = 8;
+  dirLight.shadow.camera.bottom = -6;
   dirLight.shadow.bias = -0.0005;
   scene.add(dirLight);
 
-  // 鼠标交互点光源与发光小球
+  // 关键逆光 (Rim Light，从左后方斜向上照向相机)
+  // 这是使半透玉石球体的边缘泛起发光亮边的核心布光！
+  const rimLight = new THREE.DirectionalLight(0xdaf0ff, 9.0); // 耀眼亮蓝白
+  rimLight.position.set(-6, 3, -9);
+  scene.add(rimLight);
+
+  // 侧翼辅光 (Fill Light，淡淡的紫调，增加漆面暗部色彩层次)
+  const fillLight = new THREE.DirectionalLight(0xc084fc, 1.2);
+  fillLight.position.set(-8, 2, 5);
+  scene.add(fillLight);
+
+  // 鼠标排斥点光源
   const mouseLight = new THREE.PointLight(paletteColors[0], 12, 10, 1.2);
-  mouseLight.castShadow = true;
-  mouseLight.shadow.mapSize.width = 512;
-  mouseLight.shadow.mapSize.height = 512;
-  mouseLight.shadow.bias = -0.001;
   scene.add(mouseLight);
 
-  const mouseIndicatorGeo = new THREE.SphereGeometry(0.35, 16, 16);
+  // 鼠标位置发光小球
+  const mouseIndicatorGeo = new THREE.SphereGeometry(0.3, 16, 16);
   const mouseIndicatorMat = new THREE.MeshBasicMaterial({ color: paletteColors[0] });
   const mouseIndicator = new THREE.Mesh(mouseIndicatorGeo, mouseIndicatorMat);
   scene.add(mouseIndicator);
 
-  // 7. 鼠标射线投射
+  // 6. 后处理辉光渲染线 (UnrealBloomPass)
+  const composer = new EffectComposer(renderer);
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+
+  // UnrealBloomPass: 阈值较低，半径中等，强度适中
+  // 能够将高光处晕染出一层梦幻柔和的辉光
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
+    0.65,  // 辉光强度 (Strength)
+    0.85,  // 辉光半径 (Radius)
+    0.18   // 辉光阈值 (Threshold)
+  );
+  composer.addPass(bloomPass);
+
   const raycaster = new THREE.Raycaster();
   const interactionPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   const rayIntersection = new THREE.Vector3();
 
-  // 渲染尺寸自适应逻辑
+  // 自适应尺寸调节
   function handleResize() {
     const width = canvas.parentNode ? canvas.parentNode.offsetWidth : window.innerWidth;
     const height = canvas.parentNode ? canvas.parentNode.offsetHeight : window.innerHeight;
     
     camera.aspect = width / height;
     
-    // 针对窄屏（如移动端）拉远相机或调整视野以防止内容出界
+    // 窄屏高度自适应
     if (camera.aspect < 1.3) {
-      camera.position.z = 15 / Math.min(1.0, camera.aspect * 0.85);
+      camera.position.z = 14.5 / Math.min(1.0, camera.aspect * 0.85);
     } else {
-      camera.position.z = 15;
+      camera.position.z = 14.5;
     }
     
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
+    composer.setSize(width, height);
+    bloomPass.setSize(width, height);
   }
   
   window.addEventListener('resize', handleResize);
   handleResize();
 
-  // 8. 动画渲染循环
+  // 7. 渲染循环
   const clock = new THREE.Clock();
   let animationId;
   let isPaused = false;
-
-  const dummy = new THREE.Object3D();
 
   function animate() {
     animationId = requestAnimationFrame(animate);
@@ -460,37 +497,37 @@ function createRapierSpheres(canvas, options = {}) {
     const delta = clock.getDelta();
     physics.update(delta);
 
-    // 更新 InstancedMesh 的矩阵
+    // 逐个更新球体 Mesh 的位置和大小
     for (let i = 0; i < config.count; i++) {
-      dummy.position.fromArray(physics.positionData, 3 * i);
-      dummy.scale.setScalar(physics.sizeData[i]);
-      dummy.updateMatrix();
-      instMesh.setMatrixAt(i, dummy.matrix);
+      const mesh = meshes[i];
+      if (mesh) {
+        mesh.position.fromArray(physics.positionData, 3 * i);
+        mesh.scale.setScalar(physics.sizeData[i]);
+      }
     }
-    instMesh.instanceMatrix.needsUpdate = true;
 
     // 更新鼠标指示器与点光源
     if (config.controlSphere0 && config.followCursor) {
       mouseIndicator.position.copy(physics.center);
       mouseLight.position.copy(physics.center);
       mouseIndicator.visible = true;
-      mouseLight.intensity = config.lightIntensity / 25; // 换算合适光照范围
+      mouseLight.intensity = config.lightIntensity / 25;
     } else {
       mouseIndicator.visible = false;
       mouseLight.intensity = 0;
     }
 
-    renderer.render(scene, camera);
+    // 执行后处理辉光渲染
+    composer.render();
   }
 
   animate();
 
-  // 交互事件监听接口
+  // 鼠标位置交互接口
   const updateMousePosition = (nPos) => {
     raycaster.setFromCamera(nPos, camera);
     raycaster.ray.intersectPlane(interactionPlane, rayIntersection);
     physics.center.copy(rayIntersection);
-    // 限制鼠标在物理盒内部深度的碰撞作用
     physics.center.z = THREE.MathUtils.clamp(physics.center.z, -config.maxZ, config.maxZ);
     config.controlSphere0 = true;
   };
@@ -518,8 +555,7 @@ function createRapierSpheres(canvas, options = {}) {
         mouseIndicatorMat.color.copy(paletteColors[0]);
         mouseLight.color.copy(paletteColors[0]);
         
-        initInstancedMesh();
-        physics.reset();
+        initSpheres();
       } else {
         if (newConfig.minSize !== undefined || newConfig.maxSize !== undefined) {
           physics.setSizes();
@@ -530,7 +566,7 @@ function createRapierSpheres(canvas, options = {}) {
       cancelAnimationFrame(animationId);
       window.removeEventListener('resize', handleResize);
       
-      // 深度释放显存
+      // 深度清理内存
       scene.traverse(obj => {
         if (obj.isMesh) {
           obj.geometry.dispose();
@@ -544,6 +580,7 @@ function createRapierSpheres(canvas, options = {}) {
       
       reflector.dispose();
       pmremGenerator.dispose();
+      composer.dispose();
       renderer.dispose();
     }
   };
@@ -551,13 +588,13 @@ function createRapierSpheres(canvas, options = {}) {
 
 const RapierSpheres = ({
   className = '',
-  count = 100,
-  colors = ['#ff0055', '#aa00ff', '#00ffcc'],
-  minSize = 0.35,
-  maxSize = 0.9,
-  gravity = 0.8,
-  friction = 0.992,
-  wallBounce = 0.75,
+  count = 80,
+  colors = ['#7f00ff', '#ffffff', '#1e293b'],
+  minSize = 0.5,
+  maxSize = 1.0,
+  gravity = 0.9,
+  friction = 0.99,
+  wallBounce = 0.7,
   lightIntensity = 300,
   followCursor = true,
   ...props
@@ -570,7 +607,7 @@ const RapierSpheres = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // 初始化 3D 渲染与物理控制器
+    // 初始化 3D 物理球场景
     const controller = createRapierSpheres(canvas, {
       count,
       colors,
