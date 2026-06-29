@@ -55,13 +55,13 @@ function App() {
   const [lightIntensity, setLightIntensity] = useState(600);
 
   // 特效2 (Rapier 3D) 独立参数状态
-  const [rapierCount, setRapierCount] = useState(100);
-  const [rapierGravity, setRapierGravity] = useState(0.8);
-  const [rapierFriction, setRapierFriction] = useState(0.992);
-  const [rapierWallBounce, setRapierWallBounce] = useState(0.75);
+  const [rapierCount, setRapierCount] = useState(45);
+  const [rapierGravity, setRapierGravity] = useState(1.0);
+  const [rapierFriction, setRapierFriction] = useState(0.98);
+  const [rapierWallBounce, setRapierWallBounce] = useState(0.1);
   const [rapierFollowCursor, setRapierFollowCursor] = useState(true);
-  const [rapierMinSize, setRapierMinSize] = useState(0.35);
-  const [rapierMaxSize, setRapierMaxSize] = useState(0.9);
+  const [rapierMinSize, setRapierMinSize] = useState(1.0);
+  const [rapierMaxSize, setRapierMaxSize] = useState(1.0);
   const [rapierLightIntensity, setRapierLightIntensity] = useState(300);
   const [rapierResetKey, setRapierResetKey] = useState(0);
 
@@ -413,13 +413,13 @@ function Background() {
               {/* Slider: Wall Bounce */}
               <div className="control-group">
                 <div className="control-label">
-                  <span>球体回弹系数</span>
+                  <span>球体弹性系数</span>
                   <span className="control-val">{rapierWallBounce.toFixed(2)}</span>
                 </div>
                 <input 
                   type="range" 
-                  min="0.2" 
-                  max="1.0" 
+                  min="0.0" 
+                  max="1.2" 
                   step="0.02" 
                   value={rapierWallBounce} 
                   onChange={(e) => setRapierWallBounce(Number(e.target.value))} 
