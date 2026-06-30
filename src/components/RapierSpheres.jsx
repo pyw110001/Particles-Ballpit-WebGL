@@ -551,7 +551,6 @@ function createRapierSpheres(canvas, options = {}) {
       });
       
       cubeRenderTarget.dispose();
-      pmremGenerator.dispose();
       composer.dispose();
       renderer.dispose();
     }
@@ -579,19 +578,42 @@ const RapierSpheres = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const controller = createRapierSpheres(canvas, {
-      count,
-      colors,
-      minSize,
-      maxSize,
-      gravity,
-      friction,
-      wallBounce,
-      lightIntensity,
-      followCursor,
-      ...props
-    });
-    controllerRef.current = controller;
+    let controller;
+    try {
+      controller = createRapierSpheres(canvas, {
+        count,
+        colors,
+        minSize,
+        maxSize,
+        gravity,
+        friction,
+        wallBounce,
+        lightIntensity,
+        followCursor,
+        ...props
+      });
+      controllerRef.current = controller;
+    } catch (err) {
+      console.error("RapierSpheres Init Error: ", err);
+      const errDiv = document.createElement('div');
+      errDiv.id = 'webgl-error-display';
+      errDiv.style.position = 'absolute';
+      errDiv.style.top = '100px';
+      errDiv.style.left = '20px';
+      errDiv.style.background = 'rgba(255, 0, 0, 0.9)';
+      errDiv.style.color = 'white';
+      errDiv.style.padding = '20px';
+      errDiv.style.borderRadius = '8px';
+      errDiv.style.zIndex = '99999';
+      errDiv.style.fontFamily = 'monospace';
+      errDiv.style.fontSize = '14px';
+      errDiv.style.maxWidth = '80%';
+      errDiv.style.whiteSpace = 'pre-wrap';
+      errDiv.style.wordBreak = 'break-all';
+      errDiv.innerHTML = `<h3>WebGL Init Error:</h3><pre>${err.stack || err.message}</pre>`;
+      document.body.appendChild(errDiv);
+      return;
+    }
 
     const normalizedPos = new THREE.Vector2();
 
